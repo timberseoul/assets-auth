@@ -1,0 +1,10 @@
+  name = "assets-auth"                                                                                                            
+  main = "src/index.js"                                                                                                           
+  compatibility_date = "2026-04-03"                                                                                               
+                                                                                                                                  
+  # 可选：如果你有自定义 workers.dev                                                                                              
+  # workers_dev = true                                                                                                            
+                                                                                                                                  
+  [[r2_buckets]]                                                                                                                  
+  binding = "ASSETS_BUCKET"                                                                                                       
+  bucket_name = "pictures-lib"  
