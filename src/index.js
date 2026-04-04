@@ -1,142 +1,240 @@
- export default {
-    async fetch(request, env) {
+export default {
+    async fetch(request, env, ctx) {
       try {
         const url = new URL(request.url);
+        const origin = request.headers.get("Origin") || "";
+        const corsOrigin = resolveCorsOrigin(origin, env.ALLOWED_ORIGINS || "");
 
-        if (url.pathname === "/api/gallery") return handleGallery(request, env);
-        if (url.pathname.startsWith("/api/image/")) return handleImage(request, env);
+        if (request.method === "OPTIONS") {
+          return handleOptions(url.pathname, corsOrigin);
+        }
+
+        if (url.pathname === "/api/gallery") {
+          return handleGallery(request, url, env, corsOrigin);
+        }
+
+        if (url.pathname.startsWith("/api/image/")) {
+          return handleImage(request, url, env);
+        }
 
         return json({ error: "Not Found" }, 404);
       } catch (err) {
-        return json({ error: err?.message || String(err) }, 500);
+        return json(
+          { error: "Internal Error", detail: err instanceof Error ? err.message : String(err) },
+          500
+        );
       }
     },
   };
 
-  async function handleGallery(request, env) {
-    if (request.method !== "GET") return json({ error: "Method Not Allowed" }, 405);
-    assertEnv(env);
+  /**
+   * Env 变量：
+   * - PICTURES_LIB: R2 bucket binding
+   * - GALLERY_API_TOKEN: 访问 /api/gallery 的 Bearer token（必填）
+   * - SIGNING_SECRET: 图片签名密钥（必填）
+   * - SIGNED_URL_TTL: 签名有效期秒数（可选，默认 900）
+   * - ALLOWED_ORIGINS: 允许跨域来源，逗号分隔（如 https://timberfirear.cc,https://www.timberfirear.cc）
+   */
 
-    const url = new URL(request.url);
-    const prefix = (url.searchParams.get("prefix") || "pics/pic/").trim();
-    const limit = clampInt(url.searchParams.get("limit"), 1, 1000, 200);
-    const ttl = clampInt(url.searchParams.get("ttl"), 60, 86400 * 365, Number(env.SIGN_TTL_SECONDS || 3600));
+  async function handleGallery(request, url, env, corsOrigin) {
+    if (request.method !== "GET") return json({ error: "Method Not Allowed" }, 405, corsHeaders(corsOrigin));
 
-    const listed = await env.ASSETS_BUCKET.list({ prefix, limit });
-    const exts = /\.(avif|webp|png|jpe?g|gif)$/i;
-    const origin = `${url.protocol}//${url.host}`;
+    // 1) 严格 token 鉴权（不允许匿名，不允许错误 token）
+    const requiredToken = (env.GALLERY_API_TOKEN || "").trim();
+    if (!requiredToken) {
+      return json({ error: "Server token not configured" }, 500, corsHeaders(corsOrigin));
+    }
+
+    const auth = request.headers.get("Authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    if (!token || token !== requiredToken) {
+      return json({ error: "Unauthorized" }, 401, corsHeaders(corsOrigin));
+    }
+
+    // 2) 参数
+    const prefix = url.searchParams.get("prefix") || "pics/pic/";
+    const cursor = url.searchParams.get("cursor") || undefined;
+    const limitRaw = Number(url.searchParams.get("limit") || 200);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 200;
+
+    // 3) 列表
+    const listed = await env.PICTURES_LIB.list({ prefix, cursor, limit });
+    const ttl = parsePositiveInt(env.SIGNED_URL_TTL, 900);
+    const exp = Math.floor(Date.now() / 1000) + ttl;
+    const base = new URL(request.url);
 
     const items = [];
     for (const obj of listed.objects) {
-      if (!exts.test(obj.key)) continue;
-      const path = `/api/image/${encodeURIComponent(obj.key)}`;
-      const { exp, sig } = await signPath(path, ttl, env.SIGNING_SECRET);
+      const key = obj.key;
+      const sig = await signKeyExp(key, exp, env.SIGNING_SECRET);
+      const encodedKey = encodeURIComponent(key);
+      const imageUrl = `${base.origin}/api/image/${encodedKey}?exp=${exp}&sig=${sig}`;
+
       items.push({
-        key: obj.key,
-        name: obj.key.split("/").pop() || obj.key,
-        url: `${origin}${path}?exp=${exp}&sig=${sig}`,
-        size: obj.size,
-        uploaded: obj.uploaded?.toISOString?.() || null,
+        key,
+        name: key.split("/").pop() || key,
+        size: obj.size ?? null,
+        uploaded: obj.uploaded ? obj.uploaded.toISOString() : null,
+        url: imageUrl,
       });
     }
 
-    return json({ items, count: items.length, truncated: listed.truncated, cursor: listed.cursor || null }, 200, {
-      "Cache-Control": "public, max-age=30, s-maxage=30",
-    });
+    return json(
+      {
+        items,
+        count: items.length,
+        truncated: Boolean(listed.truncated),
+        cursor: listed.cursor || null,
+      },
+      200,
+      corsHeaders(corsOrigin)
+    );
   }
 
-  async function handleImage(request, env) {
+  async function handleImage(request, url, env) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return json({ error: "Method Not Allowed" }, 405);
     }
-    assertEnv(env);
 
-    const url = new URL(request.url);
-    const exp = url.searchParams.get("exp");
-    const sig = url.searchParams.get("sig");
-    if (!exp || !sig) return json({ error: "Missing exp/sig" }, 403);
+    // /api/image/{encodedKey}
+    const encodedKey = url.pathname.slice("/api/image/".length);
+    if (!encodedKey) return json({ error: "Bad Request: missing key" }, 400);
 
+    let key;
+    try {
+      key = decodeURIComponent(encodedKey);
+    } catch {
+      return json({ error: "Bad Request: invalid key encoding" }, 400);
+    }
+
+    const expStr = url.searchParams.get("exp") || "";
+    const sig = (url.searchParams.get("sig") || "").toLowerCase();
+
+    if (!/^\d+$/.test(expStr)) return json({ error: "Bad Request: invalid exp" }, 400);
+    if (!/^[a-f0-9]{64}$/.test(sig)) return json({ error: "Bad Request: invalid sig" }, 400);
+
+    const exp = Number(expStr);
     const now = Math.floor(Date.now() / 1000);
-    const expNum = Number(exp);
-    if (!Number.isFinite(expNum) || expNum < now) return json({ error: "Signature expired" }, 403);
+    if (exp < now) return json({ error: "URL expired" }, 403);
 
-    const ok = await verifySignature(url.pathname, exp, sig, env.SIGNING_SECRET);
-    if (!ok) return json({ error: "Bad signature" }, 403);
+    const expectedSig = await signKeyExp(key, exp, env.SIGNING_SECRET);
+    if (!timingSafeEqual(sig, expectedSig)) return json({ error: "Invalid signature" }, 403);
 
-    const encodedKey = url.pathname.replace(/^\/api\/image\//, "");
-    const key = decodeURIComponent(encodedKey);
-    const object = await env.ASSETS_BUCKET.get(key);
+    const object = await env.PICTURES_LIB.get(key);
     if (!object) return json({ error: "Not Found" }, 404);
 
     const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("ETag", object.httpEtag);
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
-    headers.set("X-Content-Type-Options", "nosniff");
-    if (!headers.get("Content-Type")) headers.set("Content-Type", guessType(key));
+    headers.set("ETag", object.httpEtag || object.etag || "");
+    headers.set("Accept-Ranges", "bytes");
 
-    if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+    // Content-Type 优先从 metadata 读取，否则按扩展名兜底
+    const contentType =
+      object.httpMetadata?.contentType ||
+      guessContentTypeFromKey(key) ||
+      "application/octet-stream";
+    headers.set("Content-Type", contentType);
+
+    // 把 R2 元数据也带上
+    object.writeHttpMetadata(headers);
+
+    if (request.method === "HEAD") {
+      return new Response(null, { status: 200, headers });
+    }
+
     return new Response(object.body, { status: 200, headers });
   }
 
-  function assertEnv(env) {
-    if (!env.ASSETS_BUCKET) throw new Error("Missing R2 binding ASSETS_BUCKET");
-    if (typeof env.SIGNING_SECRET !== "string" || !env.SIGNING_SECRET.length) {
-      throw new Error("Missing SIGNING_SECRET");
-    }
+  /* ---------------- helpers ---------------- */
+
+  function parsePositiveInt(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
   }
 
-  async function signPath(pathname, ttlSec, secret) {
-    const exp = String(Math.floor(Date.now() / 1000) + ttlSec);
-    const payload = `${pathname}\n${exp}`;
-    const sig = await hmacHex(payload, secret);
-    return { exp, sig };
-  }
-
-  async function verifySignature(pathname, exp, sig, secret) {
-    const payload = `${pathname}\n${exp}`;
-    const expected = await hmacHex(payload, secret);
-    return timingSafeEqual(expected, sig.toLowerCase());
-  }
-
-  async function hmacHex(message, secret) {
+  async function signKeyExp(key, exp, secret) {
+    const sec = (secret || "").trim();
+    if (!sec) throw new Error("SIGNING_SECRET is missing");
+    const payload = `${key}.${exp}`;
     const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey(
+
+    const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      enc.encode(secret),
+      enc.encode(sec),
       { name: "HMAC", hash: "SHA-256" },
       false,
       ["sign"]
     );
-    const mac = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-    return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+    const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(payload));
+    return toHex(sigBuf);
+  }
+
+  function toHex(buf) {
+    const bytes = new Uint8Array(buf);
+    let out = "";
+    for (let i = 0; i < bytes.length; i++) {
+      out += bytes[i].toString(16).padStart(2, "0");
+    }
+    return out;
   }
 
   function timingSafeEqual(a, b) {
     if (a.length !== b.length) return false;
-    let out = 0;
-    for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    return out === 0;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+      diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return diff === 0;
   }
 
-  function clampInt(raw, min, max, fallback) {
-    const n = Number(raw ?? fallback);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, Math.floor(n)));
+  function guessContentTypeFromKey(key) {
+    const lower = key.toLowerCase();
+    if (lower.endsWith(".avif")) return "image/avif";
+    if (lower.endsWith(".webp")) return "image/webp";
+    if (lower.endsWith(".png")) return "image/png";
+    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+    if (lower.endsWith(".gif")) return "image/gif";
+    if (lower.endsWith(".svg")) return "image/svg+xml";
+    return null;
   }
 
-  function json(data, status = 200, extra = {}) {
-    return new Response(JSON.stringify(data), {
-      status,
-      headers: { "Content-Type": "application/json; charset=utf-8", ...extra },
+  function resolveCorsOrigin(origin, allowedOriginsCsv) {
+    if (!origin) return "";
+    const list = allowedOriginsCsv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.includes(origin) ? origin : "";
+  }
+
+  function corsHeaders(corsOrigin) {
+    if (!corsOrigin) return {};
+    return {
+      "Access-Control-Allow-Origin": corsOrigin,
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  }
+
+  function handleOptions(pathname, corsOrigin) {
+    if (pathname !== "/api/gallery") {
+      return new Response(null, { status: 204 });
+    }
+    if (!corsOrigin) {
+      return new Response(null, { status: 403 });
+    }
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(corsOrigin),
     });
   }
 
-  function guessType(key) {
-    if (/\.avif$/i.test(key)) return "image/avif";
-    if (/\.webp$/i.test(key)) return "image/webp";
-    if (/\.png$/i.test(key)) return "image/png";
-    if (/\.jpe?g$/i.test(key)) return "image/jpeg";
-    if (/\.gif$/i.test(key)) return "image/gif";
-    return "application/octet-stream";
+  function json(data, status = 200, extraHeaders = {}) {
+    return new Response(JSON.stringify(data), {
+      status,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...extraHeaders,
+      },
+    });
   }
