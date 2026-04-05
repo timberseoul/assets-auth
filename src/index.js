@@ -28,21 +28,25 @@ export default {
   };
 
   /**
-   * Env 变量：
-   * - PICTURES_LIB: R2 bucket binding
-   * - GALLERY_API_TOKEN: 访问 /api/gallery 的 Bearer token（必填）
-   * - SIGNING_SECRET: 图片签名密钥（必填）
-   * - SIGNED_URL_TTL: 签名有效期秒数（可选，默认 900）
-   * - ALLOWED_ORIGINS: 允许跨域来源，逗号分隔（如 https://timberfirear.cc,https://www.timberfirear.cc）
+   * 必要环境变量
+   * - pictures_lib: R2 bucket binding（你当前是这个名字）
+   * - GALLERY_API_TOKEN: /api/gallery Bearer token
+   * - SIGNING_SECRET: 图片签名密钥
+   *
+   * 可选环境变量
+   * - SIGNED_URL_TTL: 签名有效期秒数，默认 900
+   * - ALLOWED_ORIGINS: 允许跨域来源，逗号分隔
    */
 
   async function handleGallery(request, url, env, corsOrigin) {
-    if (request.method !== "GET") return json({ error: "Method Not Allowed" }, 405, corsHeaders(corsOrigin));
+    if (request.method !== "GET") {
+      return json({ error: "Method Not Allowed" }, 405, corsHeaders(corsOrigin));
+    }
 
-    // 1) 严格 token 鉴权（不允许匿名，不允许错误 token）
+    // 1) 严格 token 鉴权
     const requiredToken = (env.GALLERY_API_TOKEN || "").trim();
     if (!requiredToken) {
-      return json({ error: "Server token not configured" }, 500, corsHeaders(corsOrigin));
+      return json({ error: "Server token not configured: GALLERY_API_TOKEN" }, 500, corsHeaders(corsOrigin));
     }
 
     const auth = request.headers.get("Authorization") || "";
@@ -51,14 +55,20 @@ export default {
       return json({ error: "Unauthorized" }, 401, corsHeaders(corsOrigin));
     }
 
-    // 2) 参数
+    // 2) 防呆：R2 binding
+    if (!env.pictures_lib) {
+      return json({ error: "R2 binding missing: pictures_lib" }, 500, corsHeaders(corsOrigin));
+    }
+
+    // 3) 参数
     const prefix = url.searchParams.get("prefix") || "pics/pic/";
     const cursor = url.searchParams.get("cursor") || undefined;
     const limitRaw = Number(url.searchParams.get("limit") || 200);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 200;
 
-    // 3) 列表
-    const listed = await env.PICTURES_LIB.list({ prefix, cursor, limit });
+    // 4) list
+    const listed = await env.pictures_lib.list({ prefix, cursor, limit });
+
     const ttl = parsePositiveInt(env.SIGNED_URL_TTL, 900);
     const exp = Math.floor(Date.now() / 1000) + ttl;
     const base = new URL(request.url);
@@ -96,7 +106,10 @@ export default {
       return json({ error: "Method Not Allowed" }, 405);
     }
 
-    // /api/image/{encodedKey}
+    if (!env.pictures_lib) {
+      return json({ error: "R2 binding missing: pictures_lib" }, 500);
+    }
+
     const encodedKey = url.pathname.slice("/api/image/".length);
     if (!encodedKey) return json({ error: "Bad Request: missing key" }, 400);
 
@@ -120,22 +133,20 @@ export default {
     const expectedSig = await signKeyExp(key, exp, env.SIGNING_SECRET);
     if (!timingSafeEqual(sig, expectedSig)) return json({ error: "Invalid signature" }, 403);
 
-    const object = await env.PICTURES_LIB.get(key);
+    const object = await env.pictures_lib.get(key);
     if (!object) return json({ error: "Not Found" }, 404);
 
     const headers = new Headers();
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
-    headers.set("ETag", object.httpEtag || object.etag || "");
     headers.set("Accept-Ranges", "bytes");
+    if (object.httpEtag || object.etag) headers.set("ETag", object.httpEtag || object.etag);
 
-    // Content-Type 优先从 metadata 读取，否则按扩展名兜底
     const contentType =
       object.httpMetadata?.contentType ||
       guessContentTypeFromKey(key) ||
       "application/octet-stream";
     headers.set("Content-Type", contentType);
 
-    // 把 R2 元数据也带上
     object.writeHttpMetadata(headers);
 
     if (request.method === "HEAD") {
@@ -145,16 +156,10 @@ export default {
     return new Response(object.body, { status: 200, headers });
   }
 
-  /* ---------------- helpers ---------------- */
-
-  function parsePositiveInt(v, fallback) {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-  }
-
   async function signKeyExp(key, exp, secret) {
     const sec = (secret || "").trim();
     if (!sec) throw new Error("SIGNING_SECRET is missing");
+
     const payload = `${key}.${exp}`;
     const enc = new TextEncoder();
 
@@ -173,18 +178,14 @@ export default {
   function toHex(buf) {
     const bytes = new Uint8Array(buf);
     let out = "";
-    for (let i = 0; i < bytes.length; i++) {
-      out += bytes[i].toString(16).padStart(2, "0");
-    }
+    for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, "0");
     return out;
   }
 
   function timingSafeEqual(a, b) {
     if (a.length !== b.length) return false;
     let diff = 0;
-    for (let i = 0; i < a.length; i++) {
-      diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
     return diff === 0;
   }
 
@@ -197,6 +198,11 @@ export default {
     if (lower.endsWith(".gif")) return "image/gif";
     if (lower.endsWith(".svg")) return "image/svg+xml";
     return null;
+  }
+
+  function parsePositiveInt(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
   }
 
   function resolveCorsOrigin(origin, allowedOriginsCsv) {
@@ -214,6 +220,8 @@ export default {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      Vary: "Origin",
+    };
   }
 
   function handleOptions(pathname, corsOrigin) {

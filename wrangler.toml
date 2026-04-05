@@ -6,8 +6,11 @@ compatibility_date = "2026-04-03"
 # workers_dev = true                                                                                                            
                                                                                                                                   
 [[r2_buckets]]                                                                                                                  
-binding = "ASSETS_BUCKET"                                                                                                       
+binding = "pictures_lib"                                                                                                       
 bucket_name = "pictures-lib"  
+
+[vars]
+ALLOWED_ORIGINS = "https://timberfirear.cc,https://www.timberfirear.cc"
 
 [observability]
 enabled = false
