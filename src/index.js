@@ -14,7 +14,7 @@ export default {
         }
 
         if (url.pathname.startsWith("/api/image/")) {
-          return handleImage(request, url, env);
+          return handleImage(request, url, env, ctx);
         }
 
         return json({ error: "Not Found" }, 404);
@@ -101,7 +101,7 @@ export default {
     );
   }
 
-  async function handleImage(request, url, env) {
+  async function handleImage(request, url, env, ctx) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return json({ error: "Method Not Allowed" }, 405);
     }
@@ -133,6 +133,20 @@ export default {
     const expectedSig = await signKeyExp(key, exp, env.SIGNING_SECRET);
     if (!timingSafeEqual(sig, expectedSig)) return json({ error: "Invalid signature" }, 403);
 
+    let cacheKey = null;
+    if (request.method === "GET") {
+      const cacheUrl = new URL(request.url);
+      cacheUrl.pathname = `/__cache/image/${encodeURIComponent(key)}`;
+      cacheUrl.search = "";
+      cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+      const cached = await caches.default.match(cacheKey);
+      if (cached) {
+        const hit = new Response(cached.body, cached);
+        hit.headers.set("X-Worker-Cache", "HIT");
+        return hit;
+      }
+    }
+
     const object = await env.pictures_lib.get(key);
     if (!object) return json({ error: "Not Found" }, 404);
 
@@ -153,7 +167,12 @@ export default {
       return new Response(null, { status: 200, headers });
     }
 
-    return new Response(object.body, { status: 200, headers });
+    const response = new Response(object.body, { status: 200, headers });
+    response.headers.set("X-Worker-Cache", "MISS");
+    if (cacheKey) {
+      ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+    }
+    return response;
   }
 
   async function signKeyExp(key, exp, secret) {
@@ -246,3 +265,4 @@ export default {
       },
     });
   }
+
