@@ -10,7 +10,7 @@ binding = "pictures_lib"
 bucket_name = "pictures-lib"  
 
 [vars]
-ALLOWED_ORIGINS = "https://timberfirear.cc,https://www.timberfirear.cc"
+ALLOWED_ORIGINS = "https://1dsc.fyi"
 
 [observability]
 enabled = false

@@ -14,7 +14,7 @@ export default {
         }
 
         if (url.pathname.startsWith("/api/image/")) {
-          return handleImage(request, url, env, ctx);
+          return handleImage(request, url, env, ctx, corsOrigin);
         }
 
         return json({ error: "Not Found" }, 404);
@@ -101,37 +101,39 @@ export default {
     );
   }
 
-  async function handleImage(request, url, env, ctx) {
+  async function handleImage(request, url, env, ctx, corsOrigin) {
+    const imageHeaders = imageCorsHeaders(corsOrigin);
+
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return json({ error: "Method Not Allowed" }, 405);
+      return json({ error: "Method Not Allowed" }, 405, imageHeaders);
     }
 
     if (!env.pictures_lib) {
-      return json({ error: "R2 binding missing: pictures_lib" }, 500);
+      return json({ error: "R2 binding missing: pictures_lib" }, 500, imageHeaders);
     }
 
     const encodedKey = url.pathname.slice("/api/image/".length);
-    if (!encodedKey) return json({ error: "Bad Request: missing key" }, 400);
+    if (!encodedKey) return json({ error: "Bad Request: missing key" }, 400, imageHeaders);
 
     let key;
     try {
       key = decodeURIComponent(encodedKey);
     } catch {
-      return json({ error: "Bad Request: invalid key encoding" }, 400);
+      return json({ error: "Bad Request: invalid key encoding" }, 400, imageHeaders);
     }
 
     const expStr = url.searchParams.get("exp") || "";
     const sig = (url.searchParams.get("sig") || "").toLowerCase();
 
-    if (!/^\d+$/.test(expStr)) return json({ error: "Bad Request: invalid exp" }, 400);
-    if (!/^[a-f0-9]{64}$/.test(sig)) return json({ error: "Bad Request: invalid sig" }, 400);
+    if (!/^\d+$/.test(expStr)) return json({ error: "Bad Request: invalid exp" }, 400, imageHeaders);
+    if (!/^[a-f0-9]{64}$/.test(sig)) return json({ error: "Bad Request: invalid sig" }, 400, imageHeaders);
 
     const exp = Number(expStr);
     const now = Math.floor(Date.now() / 1000);
-    if (exp < now) return json({ error: "URL expired" }, 403);
+    if (exp < now) return json({ error: "URL expired" }, 403, imageHeaders);
 
     const expectedSig = await signKeyExp(key, exp, env.SIGNING_SECRET);
-    if (!timingSafeEqual(sig, expectedSig)) return json({ error: "Invalid signature" }, 403);
+    if (!timingSafeEqual(sig, expectedSig)) return json({ error: "Invalid signature" }, 403, imageHeaders);
 
     let cacheKey = null;
     if (request.method === "GET") {
@@ -148,9 +150,9 @@ export default {
     }
 
     const object = await env.pictures_lib.get(key);
-    if (!object) return json({ error: "Not Found" }, 404);
+    if (!object) return json({ error: "Not Found" }, 404, imageHeaders);
 
-    const headers = new Headers();
+    const headers = new Headers(imageHeaders);
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("Accept-Ranges", "bytes");
     if (object.httpEtag || object.etag) headers.set("ETag", object.httpEtag || object.etag);
@@ -240,6 +242,13 @@ export default {
       "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Access-Control-Allow-Headers": "Authorization, Content-Type",
       Vary: "Origin",
+    };
+  }
+
+  function imageCorsHeaders(corsOrigin) {
+    return {
+      ...corsHeaders(corsOrigin),
+      "Cross-Origin-Resource-Policy": "cross-origin",
     };
   }
 
