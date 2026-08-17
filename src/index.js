@@ -13,7 +13,7 @@ export default {
         }
 
         if (url.pathname === "/api/gallery") {
-          return await handleGallery(request, url, env, corsOrigin);
+          return await handleGallery(request, url, env, ctx, corsOrigin);
         }
 
         if (url.pathname.startsWith("/api/image/")) {
@@ -52,7 +52,7 @@ export default {
    * - ALLOWED_ORIGINS: 允许跨域来源，逗号分隔
    */
 
-  async function handleGallery(request, url, env, corsOrigin) {
+  async function handleGallery(request, url, env, ctx, corsOrigin) {
     if (request.method !== "GET") {
       return json({ error: "Method Not Allowed" }, 405, corsHeaders(corsOrigin));
     }
