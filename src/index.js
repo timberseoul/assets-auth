@@ -13,18 +13,29 @@ export default {
         }
 
         if (url.pathname === "/api/gallery") {
-          return handleGallery(request, url, env, corsOrigin);
+          return await handleGallery(request, url, env, corsOrigin);
         }
 
         if (url.pathname.startsWith("/api/image/")) {
-          return handleImage(request, url, env, ctx, corsOrigin);
+          return await handleImage(request, url, env, ctx, corsOrigin);
         }
 
         return json({ error: "Not Found" }, 404);
       } catch (err) {
+        let errorCorsOrigin = "";
+        try {
+          new URL(request.url);
+          errorCorsOrigin = resolveCorsOrigin(
+            request.headers.get("Origin") || "",
+            env.ALLOWED_ORIGINS || ""
+          );
+        } catch {
+          // Keep the fallback response even if the request URL is malformed.
+        }
         return json(
           { error: "Internal Error", detail: err instanceof Error ? err.message : String(err) },
-          500
+          500,
+          corsHeaders(errorCorsOrigin)
         );
       }
     },
@@ -116,7 +127,12 @@ export default {
     cacheUrl.search = "";
     const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
-    const cached = await caches.default.match(cacheKey);
+    let cached = null;
+    try {
+      cached = await caches.default.match(cacheKey);
+    } catch {
+      // Cache failures should fall back to R2.
+    }
     if (cached) {
       try {
         return await cached.json();
@@ -125,7 +141,12 @@ export default {
       }
     }
 
-    const object = await env.pictures_lib.get(key);
+    let object;
+    try {
+      object = await env.pictures_lib.get(key);
+    } catch {
+      return emptyImageDimensions();
+    }
     if (!object) return emptyImageDimensions();
 
     let dimensions;
@@ -152,7 +173,9 @@ export default {
             "Cache-Control": `public, max-age=${IMAGE_METADATA_CACHE_TTL}`,
           },
         })
-      )
+      ).catch(() => {
+        // Metadata caching is best effort and must not break Gallery.
+      })
     );
 
     return metadata;
@@ -359,7 +382,12 @@ export default {
       cacheUrl.pathname = `/__cache/image/${encodeURIComponent(key)}`;
       cacheUrl.search = "";
       cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
-      const cached = await caches.default.match(cacheKey);
+      let cached = null;
+      try {
+        cached = await caches.default.match(cacheKey);
+      } catch {
+        // Cache failures should fall back to R2.
+      }
       if (cached) {
         const hit = new Response(cached.body, cached);
         hit.headers.set("X-Worker-Cache", "HIT");
@@ -367,7 +395,12 @@ export default {
       }
     }
 
-    const object = await env.pictures_lib.get(key);
+    let object;
+    try {
+      object = await env.pictures_lib.get(key);
+    } catch {
+      return json({ error: "Storage Unavailable" }, 503, imageHeaders);
+    }
     if (!object) return json({ error: "Not Found" }, 404, imageHeaders);
 
     const headers = new Headers(imageHeaders);
@@ -390,7 +423,11 @@ export default {
     const response = new Response(object.body, { status: 200, headers });
     response.headers.set("X-Worker-Cache", "MISS");
     if (cacheKey) {
-      ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+      ctx.waitUntil(
+        caches.default.put(cacheKey, response.clone()).catch(() => {
+          // Image caching is best effort and must not break the response.
+        })
+      );
     }
     return response;
   }
