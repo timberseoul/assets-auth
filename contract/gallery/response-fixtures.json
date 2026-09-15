@@ -1,0 +1,114 @@
+{
+  "cases": [
+    {
+      "name": "list-page",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": {
+        "items": [
+          {
+            "key": "pics/pic/example.webp",
+            "etag": "etag-v1",
+            "name": "example.webp",
+            "size": 123456,
+            "uploaded": "2026-09-11T00:00:00.000Z",
+            "width": 1200,
+            "height": 800,
+            "aspectRatio": 1.5,
+            "url": "https://assets.example/api/image/pics%2Fpic%2Fexample.webp?v=etag-v1&exp=1798761600&sig=eec62a1d01f227adb68377c330e30c22d8f719061094af3606468daceea9c13d"
+          }
+        ],
+        "count": 1,
+        "truncated": true,
+        "cursor": "next-page",
+        "generatedAt": 1798760000,
+        "expiresAt": 1798761600
+      }
+    },
+    {
+      "name": "list-final-page",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": {
+        "items": [
+          {
+            "key": "pics/pic/no-dimensions.gif",
+            "etag": "etag-v4",
+            "name": "no-dimensions.gif",
+            "size": 4096,
+            "uploaded": "2026-09-11T00:00:00.000Z",
+            "width": null,
+            "height": null,
+            "aspectRatio": null,
+            "url": "https://assets.example/api/image/pics%2Fpic%2Fno-dimensions.gif?v=etag-v4&exp=1798761600&sig=0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "count": 1,
+        "truncated": false,
+        "cursor": null,
+        "generatedAt": 1798760000,
+        "expiresAt": 1798761600
+      }
+    },
+    {
+      "name": "invalid-cursor",
+      "status": 400,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": {
+        "error": "Bad Request: invalid cursor"
+      }
+    },
+    {
+      "name": "image-not-modified",
+      "status": 304,
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": "\"etag-v1\""
+      },
+      "body": null
+    },
+    {
+      "name": "image-range",
+      "status": 206,
+      "headers": {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Length": "16",
+        "Content-Range": "bytes 0-15/123456",
+        "ETag": "\"etag-v1\""
+      },
+      "body": "binary"
+    },
+    {
+      "name": "image-range-not-satisfiable",
+      "status": 416,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Range": "bytes */123456"
+      },
+      "body": {
+        "error": "Range Not Satisfiable"
+      }
+    },
+    {
+      "name": "image-version-gone",
+      "status": 410,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": {
+        "error": "Image version no longer available"
+      }
+    }
+  ]
+}

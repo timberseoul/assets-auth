@@ -1,0 +1,29 @@
+{
+  "algorithm": "HMAC-SHA-256",
+  "messageTemplate": "{key}.{etag}.{exp}",
+  "secret": "gallery-contract-test-secret",
+  "secretIsTestOnly": true,
+  "vectors": [
+    {
+      "key": "pics/pic/example.webp",
+      "etag": "etag-v1",
+      "exp": 1798761600,
+      "message": "pics/pic/example.webp.etag-v1.1798761600",
+      "signature": "eec62a1d01f227adb68377c330e30c22d8f719061094af3606468daceea9c13d"
+    },
+    {
+      "key": "pics/pic/with space.jpg",
+      "etag": "etag-v2",
+      "exp": 1801439999,
+      "message": "pics/pic/with space.jpg.etag-v2.1801439999",
+      "signature": "a49f5511d1dd73be0ac7f5fe48c8d8979c80968fa1796ad5a400624999e46b5a"
+    },
+    {
+      "key": "pics/pic/%E6%B5%8B%E8%AF%95.png",
+      "etag": "etag-v3",
+      "exp": 1804118399,
+      "message": "pics/pic/%E6%B5%8B%E8%AF%95.png.etag-v3.1804118399",
+      "signature": "1dda022c185678299e58c01de72f5f462025edf59350a3511a11b9966c0142d7"
+    }
+  ]
+}

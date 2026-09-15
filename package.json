@@ -1,5 +1,22 @@
 {
+  "name": "assets-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "node --check src/index.js && wrangler deploy --dry-run",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "benchmark:dimensions": "node ./scripts/benchmark-dimensions.mjs",
+    "deploy": "wrangler deploy",
+    "deploy:preview": "wrangler deploy --config wrangler.preview.toml",
+    "check:preview": "wrangler deploy --config wrangler.preview.toml --dry-run",
+    "verify:preview": "node --env-file=.dev.vars.preview ./scripts/verify-preview.mjs",
+    "verify:preview-overwrite": "node --env-file=.dev.vars.preview ./scripts/verify-preview-overwrite.mjs",
+    "verify:gallery-contract": "node ./scripts/verify-gallery-contract.mjs"
+  },
   "devDependencies": {
-    "wrangler": "^4.120.0"
+    "vitest": "^5.0.0",
+    "wrangler": "^4.131.1"
   }
 }

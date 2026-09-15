@@ -1,0 +1,232 @@
+{
+  "contractVersion": 1,
+  "status": "frozen",
+  "prefix": {
+    "requiredRoot": "pics/pic/",
+    "default": "pics/pic/",
+    "maxLength": 512
+  },
+  "listRequest": {
+    "methods": [
+      "GET",
+      "OPTIONS"
+    ],
+    "defaultLimit": 40,
+    "minLimit": 1,
+    "maxLimit": 50,
+    "maxCursorLength": 512
+  },
+  "listResponse": {
+    "itemFields": {
+      "key": {
+        "type": "string",
+        "nullable": false
+      },
+      "etag": {
+        "type": "string",
+        "nullable": false
+      },
+      "name": {
+        "type": "string",
+        "nullable": false
+      },
+      "size": {
+        "type": "number",
+        "nullable": true
+      },
+      "uploaded": {
+        "type": "string",
+        "nullable": true
+      },
+      "width": {
+        "type": "number",
+        "nullable": true
+      },
+      "height": {
+        "type": "number",
+        "nullable": true
+      },
+      "aspectRatio": {
+        "type": "number",
+        "nullable": true
+      },
+      "url": {
+        "type": "string",
+        "nullable": false
+      }
+    },
+    "pageFields": {
+      "items": {
+        "type": "array",
+        "nullable": false
+      },
+      "count": {
+        "type": "number",
+        "nullable": false
+      },
+      "truncated": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "cursor": {
+        "type": "string",
+        "nullable": true
+      },
+      "generatedAt": {
+        "type": "number",
+        "nullable": false
+      },
+      "expiresAt": {
+        "type": "number",
+        "nullable": false
+      }
+    },
+    "invariants": [
+      "count equals items.length",
+      "cursor is present when truncated is true",
+      "cursor is null when truncated is false",
+      "etag is the unquoted R2 object etag",
+      "generatedAt and expiresAt are Unix timestamps in seconds",
+      "url contains v, exp and sig",
+      "items are unique by key plus etag"
+    ]
+  },
+  "signature": {
+    "algorithm": "HMAC-SHA-256",
+    "messageTemplate": "{key}.{etag}.{exp}",
+    "messageEncoding": "utf-8",
+    "signatureEncoding": "lowercase-hex",
+    "secretSource": "SIGNING_SECRET",
+    "signedUrlTtlSeconds": 31536000,
+    "urlParameters": {
+      "version": "v",
+      "expiry": "exp",
+      "signature": "sig"
+    },
+    "versionValue": "unquoted R2 object etag",
+    "validationOrder": [
+      "validate key",
+      "validate v",
+      "validate exp",
+      "validate sig format",
+      "verify HMAC",
+      "read key plus etag image cache",
+      "on cache miss read R2 and compare object etag with v"
+    ],
+    "legacy": {
+      "enabledUntilW8": true,
+      "messageTemplate": "{key}.{exp}",
+      "versionParameter": null,
+      "imageCacheIdentity": "unversioned"
+    }
+  },
+  "cache": {
+    "workerList": "private, no-store",
+    "publicList": "public, max-age=60, s-maxage=300, stale-while-revalidate=300",
+    "image": "public, max-age=31536000, immutable",
+    "error": "no-store",
+    "manifestTtlSeconds": 300,
+    "dimensionPositiveTtlSeconds": 31536000,
+    "dimensionNegativeTtlSeconds": 300,
+    "imageCacheTtlSeconds": 31536000,
+    "manifestCacheKey": "/__cache/gallery-manifest?prefix={prefix}&cursor={cursor}&limit={limit}",
+    "dimensionCacheKey": "/__cache/image-metadata/{encoded-key}?v={encoded-etag}",
+    "imageCacheKey": "/__cache/image/{encoded-key}?v={encoded-etag}"
+  },
+  "http": {
+    "imageMethods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "range": {
+      "unit": "bytes",
+      "singleRangeOnly": true,
+      "satisfiableStatus": 206,
+      "notSatisfiableStatus": 416,
+      "bypassesFullImageCache": true
+    },
+    "conditional": {
+      "requestHeader": "If-None-Match",
+      "notModifiedStatus": 304
+    },
+    "imageCors": {
+      "allowOrigin": "*",
+      "crossOriginResourcePolicy": "cross-origin"
+    }
+  },
+  "errors": [
+    {
+      "status": 400,
+      "layer": "both",
+      "meaning": "invalid key, cursor, prefix, limit or range syntax",
+      "cache": "no-store"
+    },
+    {
+      "status": 401,
+      "layer": "worker-list",
+      "meaning": "missing or invalid gallery bearer token",
+      "cache": "no-store"
+    },
+    {
+      "status": 403,
+      "layer": "worker-image",
+      "meaning": "expired URL, invalid signature or rejected browser origin",
+      "cache": "no-store"
+    },
+    {
+      "status": 404,
+      "layer": "worker-image",
+      "meaning": "object key does not exist",
+      "cache": "no-store"
+    },
+    {
+      "status": 410,
+      "layer": "worker-image",
+      "meaning": "requested etag version no longer matches the current object",
+      "cache": "no-store"
+    },
+    {
+      "status": 416,
+      "layer": "worker-image",
+      "meaning": "range is malformed or cannot be satisfied",
+      "cache": "no-store"
+    },
+    {
+      "status": 429,
+      "layer": "both",
+      "meaning": "request is rate limited",
+      "cache": "no-store"
+    },
+    {
+      "status": 502,
+      "layer": "nitro-list",
+      "meaning": "worker authentication failed or returned an invalid page",
+      "cache": "no-store"
+    },
+    {
+      "status": 503,
+      "layer": "both",
+      "meaning": "required configuration or storage is unavailable",
+      "cache": "no-store"
+    },
+    {
+      "status": 504,
+      "layer": "nitro-list",
+      "meaning": "worker request timed out",
+      "cache": "no-store"
+    }
+  ],
+  "frontend": {
+    "staleWindowSeconds": 300,
+    "dedupeIdentity": "key plus etag",
+    "actions": {
+      "403": "refresh signatures once",
+      "404": "stop retrying this item",
+      "410": "refresh signatures once and replace stale version",
+      "429": "exponential backoff with a finite attempt limit",
+      "5xx": "exponential backoff with a finite attempt limit",
+      "offline": "pause automatic retry until connectivity returns"
+    }
+  }
+}

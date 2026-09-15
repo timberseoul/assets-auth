@@ -11,6 +11,7 @@ bucket_name = "pictures-lib"
 
 [vars]
 ALLOWED_ORIGINS = "https://1dsc.fyi"
+SIGNED_URL_TTL = "31536000"
 
 [observability]
 enabled = false

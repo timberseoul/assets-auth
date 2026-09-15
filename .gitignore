@@ -33,3 +33,6 @@ Desktop.ini
 # Local editor settings
 .idea/
 .vscode/
+
+# Internal handoff, optimization, and release notes
+/opt/
