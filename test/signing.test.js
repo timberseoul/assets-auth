@@ -1,11 +1,9 @@
-import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createHmacSigner,
   normalizeEtag,
-  signLegacyKey,
   signVersionedKey,
   timingSafeEqualHex,
   versionedSignatureMessage,
@@ -27,16 +25,12 @@ describe("versioned HMAC signing", () => {
     expect(normalizeEtag("etag-v3")).toBe("etag-v3");
   });
 
-  it("separates versioned and legacy signatures", async () => {
+  it("uses the ETag-versioned signature message", async () => {
     const exp = 1800000000;
     const versioned = await signVersionedKey("pics/pic/a.png", "etag-v1", exp, "test-secret");
-    const legacy = await signLegacyKey("pics/pic/a.png", exp, "test-secret");
-    const expected = createHmac("sha256", "test-secret").update(`pics/pic/a.png.${exp}`, "utf8").digest("hex");
-
-    expect(versioned).not.toBe(legacy);
-    expect(legacy).toBe(expected);
-    expect(timingSafeEqualHex(expected, expected)).toBe(true);
-    expect(timingSafeEqualHex(expected, "0".repeat(64))).toBe(false);
+    expect(versioned).toMatch(/^[a-f0-9]{64}$/);
+    expect(timingSafeEqualHex(versioned, versioned)).toBe(true);
+    expect(timingSafeEqualHex(versioned, "0".repeat(64))).toBe(false);
   });
 
   it("reuses one signer for repeated messages", async () => {

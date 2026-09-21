@@ -49,14 +49,6 @@ export function versionedSignatureMessage(key, etag, exp) {
   return [key, normalizeEtag(etag), exp].join(".");
 }
 
-export function legacySignatureMessage(key, exp) {
-  return [key, exp].join(".");
-}
-
 export async function signVersionedKey(key, etag, exp, secret) {
   return signMessage(versionedSignatureMessage(key, etag, exp), secret);
-}
-
-export async function signLegacyKey(key, exp, secret) {
-  return signMessage(legacySignatureMessage(key, exp), secret);
 }

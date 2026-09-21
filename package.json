@@ -9,10 +9,6 @@
     "test:watch": "vitest",
     "benchmark:dimensions": "node ./scripts/benchmark-dimensions.mjs",
     "deploy": "wrangler deploy",
-    "deploy:preview": "wrangler deploy --config wrangler.preview.toml",
-    "check:preview": "wrangler deploy --config wrangler.preview.toml --dry-run",
-    "verify:preview": "node --env-file=.dev.vars.preview ./scripts/verify-preview.mjs",
-    "verify:preview-overwrite": "node --env-file=.dev.vars.preview ./scripts/verify-preview-overwrite.mjs",
     "verify:gallery-contract": "node ./scripts/verify-gallery-contract.mjs"
   },
   "devDependencies": {

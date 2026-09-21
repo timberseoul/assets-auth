@@ -1,7 +1,6 @@
 import { IMAGE_CACHE_TTL, IMAGE_MAX_VERSION_LENGTH } from "./constants.js";
 import {
   createHmacSigner,
-  legacySignatureMessage,
   normalizeEtag,
   timingSafeEqualHex,
   versionedSignatureMessage,
@@ -119,12 +118,11 @@ export async function handleImage(request, url, env, ctx) {
 
     const encodedKey = url.pathname.slice("/api/image/".length);
     const key = decodeImageKey(encodedKey);
-    const hasVersion = url.searchParams.has("v");
     const versionParam = url.searchParams.get("v");
-    if (hasVersion && versionParam !== null && versionParam.length > IMAGE_MAX_VERSION_LENGTH) {
+    if (versionParam !== null && versionParam.length > IMAGE_MAX_VERSION_LENGTH) {
       throw new HttpError(400, "Bad Request: invalid v");
     }
-    const version = validateImageVersion(versionParam, hasVersion);
+    const version = validateImageVersion(versionParam, true);
     const expValue = url.searchParams.get("exp") || "";
     const signature = (url.searchParams.get("sig") || "").toLowerCase();
 
@@ -136,16 +134,14 @@ export async function handleImage(request, url, env, ctx) {
 
     const signer = createHmacSigner(env.SIGNING_SECRET);
     if (!signer) throw new HttpError(503, "Service Unavailable");
-    const message = version
-      ? versionedSignatureMessage(key, version, exp)
-      : legacySignatureMessage(key, exp);
+    const message = versionedSignatureMessage(key, version, exp);
     const expectedSignature = await signer.sign(message);
     if (!timingSafeEqualHex(signature, expectedSignature)) throw new HttpError(403, "Invalid signature");
 
     if (request.method === "HEAD") {
       const object = await headObject(key, env.pictures_lib);
       if (!object) return json({ error: "Not Found" }, 404);
-      if (version && normalizeEtag(object.etag) !== version) {
+      if (normalizeEtag(object.etag) !== version) {
         return json({ error: "Image version no longer available" }, 410);
       }
       const headers = objectHeaders(object, key);
@@ -160,7 +156,7 @@ export async function handleImage(request, url, env, ctx) {
     if (rangeHeader) {
       const object = await headObject(key, env.pictures_lib);
       if (!object) return json({ error: "Not Found" }, 404);
-      if (version && normalizeEtag(object.etag) !== version) {
+      if (normalizeEtag(object.etag) !== version) {
         return json({ error: "Image version no longer available" }, 410);
       }
       const baseHeaders = objectHeaders(object, key);
@@ -176,7 +172,7 @@ export async function handleImage(request, url, env, ctx) {
       }
       const rangedObject = await getObject(key, env.pictures_lib, { offset: range.offset, length: range.length });
       if (!rangedObject) return json({ error: "Not Found" }, 404);
-      if (version && normalizeEtag(rangedObject.etag) !== version) {
+      if (normalizeEtag(rangedObject.etag) !== version) {
         return json({ error: "Image version no longer available" }, 410);
       }
       const end = range.offset + range.length - 1;
@@ -200,7 +196,7 @@ export async function handleImage(request, url, env, ctx) {
 
     const object = await getObject(key, env.pictures_lib);
     if (!object) return json({ error: "Not Found" }, 404);
-    if (version && normalizeEtag(object.etag) !== version) {
+    if (normalizeEtag(object.etag) !== version) {
       return json({ error: "Image version no longer available" }, 410);
     }
 

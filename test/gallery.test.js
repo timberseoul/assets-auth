@@ -118,6 +118,43 @@ describe("cursor gallery manifest", () => {
     expect(manifestEntry).toBeTruthy();
     const manifest = await manifestEntry[1].clone().json();
     expect(JSON.stringify(manifest)).not.toMatch(/"(?:url|sig|exp|expiresAt)"\s*:/);
+    expect(manifest.items[0]).toMatchObject({ width: 100, height: 100, aspectRatio: 1 });
+  });
+
+  it("rebuilds a legacy manifest cache that has no dimension fields", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
+
+    const cacheKey = new URL("https://assets.example/__cache/gallery-manifest");
+    cacheKey.searchParams.set("prefix", "pics/pic/");
+    cacheKey.searchParams.set("limit", "1");
+    cache.responses.set(
+      cacheKey.toString(),
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              key: "pics/pic/000.png",
+              etag: "etag-0",
+              name: "000.png",
+              size: 100,
+              uploaded: "2026-09-11T00:00:00.000Z",
+            },
+          ],
+          truncated: false,
+          cursor: null,
+          generatedAt: Math.floor(Date.now() / 1000),
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const response = await request("/api/gallery?limit=1");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.items[0]).toMatchObject({ width: 100, height: 100, aspectRatio: 1 });
+    expect(bucket.listCalls).toHaveLength(1);
   });
 
   it("sets private no-store and emits Server-Timing", async () => {

@@ -6,8 +6,8 @@ import { imageFixtures } from "./helpers/image-fixtures.js";
 import { installMockCaches, MockCache } from "./helpers/mock-cache.js";
 import { MockR2Bucket } from "./helpers/mock-r2.js";
 
-function legacySignature(key, exp, secret) {
-  return createHmac("sha256", secret).update(`${key}.${exp}`, "utf8").digest("hex");
+function versionedSignature(key, etag, exp, secret) {
+  return createHmac("sha256", secret).update(`${key}.${etag}.${exp}`, "utf8").digest("hex");
 }
 
 describe("worker compatibility baseline", () => {
@@ -62,10 +62,10 @@ describe("worker compatibility baseline", () => {
     expect(incorrect.status).toBe(401);
   });
 
-  it("keeps the legacy key.exp image signature callable during compatibility", async () => {
+  it("serves ETag-versioned images and rejects legacy key.exp signatures", async () => {
     const exp = Math.floor(Date.now() / 1000) + 60;
-    const sig = legacySignature(key, exp, secret);
-    const path = `/api/image/${encodeURIComponent(key)}?exp=${exp}&sig=${sig}`;
+    const sig = versionedSignature(key, "etag-v1", exp, secret);
+    const path = `/api/image/${encodeURIComponent(key)}?v=etag-v1&exp=${exp}&sig=${sig}`;
 
     const first = await request(path);
     expect(first.status).toBe(200);
@@ -75,6 +75,10 @@ describe("worker compatibility baseline", () => {
     const second = await request(path);
     expect(second.status).toBe(200);
     expect(second.headers.get("X-Worker-Cache")).toBe("HIT");
+
+    const legacySig = createHmac("sha256", secret).update(`${key}.${exp}`, "utf8").digest("hex");
+    const legacy = await request(`/api/image/${encodeURIComponent(key)}?exp=${exp}&sig=${legacySig}`);
+    expect(legacy.status).toBe(400);
   });
 
   it("returns the cursor and etag fields needed by the next phases", async () => {

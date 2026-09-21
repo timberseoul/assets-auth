@@ -1,6 +1,5 @@
 import {
   DIMENSION_CONCURRENCY_DEFAULT,
-  DIMENSION_PAGE_BUDGET_MS,
   GALLERY_MANIFEST_TTL,
   SIGNED_URL_TTL,
 } from "./constants.js";
@@ -67,6 +66,21 @@ async function mapWithConcurrency(items, concurrency, worker) {
 
 function normalizeManifest(value) {
   if (!value || !Array.isArray(value.items) || typeof value.generatedAt !== "number") return null;
+  const hasNullablePositiveInteger = (field) =>
+    field === null || (Number.isInteger(field) && field > 0);
+  const hasNullablePositiveNumber = (field) =>
+    field === null || (typeof field === "number" && Number.isFinite(field) && field > 0);
+  const hasDimensions = (item) =>
+    item &&
+    typeof item === "object" &&
+    Object.prototype.hasOwnProperty.call(item, "width") &&
+    Object.prototype.hasOwnProperty.call(item, "height") &&
+    Object.prototype.hasOwnProperty.call(item, "aspectRatio") &&
+    hasNullablePositiveInteger(item.width) &&
+    hasNullablePositiveInteger(item.height) &&
+    hasNullablePositiveNumber(item.aspectRatio);
+
+  if (!value.items.every(hasDimensions)) return null;
   return value;
 }
 
@@ -121,11 +135,9 @@ async function buildManifest(query, env, baseOrigin, ctx, metrics) {
     throw new HttpError(503, "Storage Unavailable");
   }
 
-  const deadline = performance.now() + DIMENSION_PAGE_BUDGET_MS;
   const dimensionStarted = performance.now();
   const dimensionPromises = new Map();
   const dimensions = await mapWithConcurrency(listed.objects, DIMENSION_CONCURRENCY_DEFAULT, async (object) => {
-    if (performance.now() >= deadline) return emptyDimensions();
     const identity = `${object.key}\u0000${object.etag}`;
     if (!dimensionPromises.has(identity)) {
       dimensionPromises.set(

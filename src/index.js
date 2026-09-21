@@ -86,7 +86,6 @@ export default {
       if (url.pathname.startsWith("/api/image/")) {
         const response = await handleImage(request, url, env, ctx);
         logRequest("image", request, response, startedAt, {
-          legacySignature: !url.searchParams.has("v"),
           keyPrefix: url.pathname.slice("/api/image/".length, "/api/image/".length + 40),
         });
         return response;

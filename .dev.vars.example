@@ -1,3 +1,6 @@
+# Local/Preview placeholders only. Never commit real values here.
 GALLERY_API_TOKEN=
 SIGNING_SECRET=
+
+# Public runtime configuration. Production values are configured in Wrangler.
 SIGNED_URL_TTL=31536000
