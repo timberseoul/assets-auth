@@ -91,6 +91,28 @@ export function createWebp({ width = 1024, height = 768 } = {}) {
   return concatBytes(ascii("RIFF"), u32le(4 + vp8x.byteLength), ascii("WEBP"), vp8x);
 }
 
+export function createWebpVp8({ width = 2048, height = 1152, payloadLength = 120 * 1024 } = {}) {
+  const payload = new Uint8Array(Math.max(payloadLength, 10));
+  payload.set(new Uint8Array([0, 0, 0, 0x9d, 0x01, 0x2a]));
+  payload.set(u16le(width), 6);
+  payload.set(u16le(height), 8);
+  const vp8 = concatBytes(ascii("VP8 "), u32le(payload.byteLength), payload);
+  return concatBytes(ascii("RIFF"), u32le(4 + vp8.byteLength), ascii("WEBP"), vp8);
+}
+
+export function createWebpVp8l({ width = 2560, height = 1440, payloadLength = 120 * 1024 } = {}) {
+  const payload = new Uint8Array(Math.max(payloadLength, 5));
+  const widthBits = width - 1;
+  const heightBits = height - 1;
+  payload[0] = 0x2f;
+  payload[1] = widthBits & 0xff;
+  payload[2] = ((widthBits >>> 8) & 0x3f) | ((heightBits & 0x03) << 6);
+  payload[3] = (heightBits >>> 2) & 0xff;
+  payload[4] = (heightBits >>> 10) & 0x0f;
+  const vp8l = concatBytes(ascii("VP8L"), u32le(payload.byteLength), payload);
+  return concatBytes(ascii("RIFF"), u32le(4 + vp8l.byteLength), ascii("WEBP"), vp8l);
+}
+
 export function createSvg({ width = 320, height = 180, prefix = "" } = {}) {
   return ascii(`${prefix}<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`);
 }
@@ -118,6 +140,11 @@ export const imageFixtures = {
   webp: createWebp(),
   svg: createSvg(),
   avif: createAvif(),
+};
+
+export const largeWebpFixtures = {
+  vp8: createWebpVp8(),
+  vp8l: createWebpVp8l(),
 };
 
 export const crossSegmentFixtures = {

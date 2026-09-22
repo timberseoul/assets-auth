@@ -1,5 +1,6 @@
 import {
   DIMENSION_CONCURRENCY_DEFAULT,
+  GALLERY_MANIFEST_CACHE_VERSION,
   GALLERY_MANIFEST_TTL,
   SIGNED_URL_TTL,
 } from "./constants.js";
@@ -86,7 +87,7 @@ function normalizeManifest(value) {
 
 function manifestCacheUrl(origin, query) {
   const url = new URL(origin);
-  url.pathname = "/__cache/gallery-manifest";
+  url.pathname = "/__cache/gallery-manifest/" + GALLERY_MANIFEST_CACHE_VERSION;
   url.search = "";
   url.searchParams.set("prefix", query.prefix);
   if (query.cursor) url.searchParams.set("cursor", query.cursor);

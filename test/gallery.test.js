@@ -116,6 +116,7 @@ describe("cursor gallery manifest", () => {
 
     const manifestEntry = [...cache.responses.entries()].find(([key]) => key.includes("/__cache/gallery-manifest"));
     expect(manifestEntry).toBeTruthy();
+    expect(manifestEntry[0]).toContain("/__cache/gallery-manifest/v2");
     const manifest = await manifestEntry[1].clone().json();
     expect(JSON.stringify(manifest)).not.toMatch(/"(?:url|sig|exp|expiresAt)"\s*:/);
     expect(manifest.items[0]).toMatchObject({ width: 100, height: 100, aspectRatio: 1 });
@@ -125,7 +126,7 @@ describe("cursor gallery manifest", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
 
-    const cacheKey = new URL("https://assets.example/__cache/gallery-manifest");
+    const cacheKey = new URL("https://assets.example/__cache/gallery-manifest/v2");
     cacheKey.searchParams.set("prefix", "pics/pic/");
     cacheKey.searchParams.set("limit", "1");
     cache.responses.set(

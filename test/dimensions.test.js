@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DIMENSION_ABSOLUTE_MAX_BYTES, DIMENSION_LIMITS } from "../src/constants.js";
+import {
+  DIMENSION_ABSOLUTE_MAX_BYTES,
+  DIMENSION_LIMITS,
+  IMAGE_METADATA_CACHE_VERSION,
+} from "../src/constants.js";
 import { getImageDimensions, parseImageDimensions, scanImageDimensions } from "../src/dimensions.js";
 import { createExecutionContext } from "./helpers/execution-context.js";
 import {
@@ -12,6 +16,7 @@ import {
   createWebp,
   crossSegmentFixtures,
   imageFixtures,
+  largeWebpFixtures,
   scanLimitFixtures,
 } from "./helpers/image-fixtures.js";
 import { installMockCaches, MockCache } from "./helpers/mock-cache.js";
@@ -88,6 +93,23 @@ describe("limited dimension scanning", () => {
     }
   });
 
+  it("parses large VP8 and VP8L chunks from their headers before the WebP scan limit", async () => {
+    const cases = [
+      ["pics/pic/large-vp8.webp", largeWebpFixtures.vp8, 2048, 1152],
+      ["pics/pic/large-vp8l.webp", largeWebpFixtures.vp8l, 2560, 1440],
+    ];
+
+    for (const [key, bytes, width, height] of cases) {
+      const { bucket, result } = await scan(key, bytes);
+
+      expect(bytes.byteLength).toBeGreaterThan(DIMENSION_LIMITS.webp.max);
+      expect(result).toMatchObject({ width, height, status: "ok" });
+      expect(result.status).not.toBe("scan-limit");
+      expect(bucket.getCalls).toHaveLength(1);
+      expect(bucket.getCalls[0].options.range.length).toBe(DIMENSION_LIMITS.webp.initial);
+    }
+  });
+
   it("stops at each format scan limit without reading the full object", async () => {
     const cases = [
       ["pics/pic/large.jpg", scanLimitFixtures.jpeg, 512 * 1024],
@@ -120,6 +142,36 @@ describe("limited dimension scanning", () => {
     const controls = [...cache.responses.values()].map((response) => response.headers.get("Cache-Control"));
     expect(controls).toContain("public, max-age=31536000");
     expect(controls).toContain("public, max-age=300");
+    expect(
+      [...cache.responses.keys()].some((key) =>
+        key.includes("/__cache/image-metadata/" + IMAGE_METADATA_CACHE_VERSION + "/")
+      )
+    ).toBe(true);
+  });
+
+  it("bypasses a legacy negative metadata cache after the cache version changes", async () => {
+    const key = "pics/pic/legacy.webp";
+    const legacyCacheKey =
+      "https://assets.example/__cache/image-metadata/v1/" +
+      encodeURIComponent(key) +
+      "?v=etag-v1";
+    cache.responses.set(
+      legacyCacheKey,
+      new Response(
+        JSON.stringify({
+          width: null,
+          height: null,
+          aspectRatio: null,
+          status: "scan-limit",
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const { bucket, result } = await scan(key, largeWebpFixtures.vp8);
+
+    expect(result).toMatchObject({ width: 2048, height: 1152, status: "ok" });
+    expect(bucket.getCalls).toHaveLength(1);
   });
 
   it("does not share metadata across ETag versions of the same key", async () => {

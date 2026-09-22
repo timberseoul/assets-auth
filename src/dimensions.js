@@ -1,6 +1,7 @@
 import {
   DIMENSION_ABSOLUTE_MAX_BYTES,
   DIMENSION_LIMITS,
+  IMAGE_METADATA_CACHE_VERSION,
   IMAGE_METADATA_NEGATIVE_TTL,
   IMAGE_METADATA_POSITIVE_TTL,
 } from "./constants.js";
@@ -149,24 +150,30 @@ function parseWebp(bytes) {
     const chunkSize = readUint32LE(bytes, offset + 4);
     const dataOffset = offset + 8;
     const chunkEnd = dataOffset + chunkSize;
-    if (chunkEnd > bytes.length) return parserResult(null, "need-more");
 
     if (chunkType === "VP8X") {
-      if (chunkSize < 10) return parserResult();
+      if (chunkSize < 10 || dataOffset + 10 > bytes.length) {
+        return parserResult(null, "need-more");
+      }
       return parserResult(normalizeDimensions(1 + readUint24LE(bytes, dataOffset + 4), 1 + readUint24LE(bytes, dataOffset + 7)));
     }
     if (chunkType === "VP8 ") {
-      if (chunkSize < 10) return parserResult();
+      if (chunkSize < 10 || dataOffset + 10 > bytes.length) {
+        return parserResult(null, "need-more");
+      }
       if (bytes[dataOffset + 3] !== 0x9d || bytes[dataOffset + 4] !== 0x01 || bytes[dataOffset + 5] !== 0x2a) return parserResult();
       return parserResult(normalizeDimensions(readUint16LE(bytes, dataOffset + 6) & 0x3fff, readUint16LE(bytes, dataOffset + 8) & 0x3fff));
     }
     if (chunkType === "VP8L") {
-      if (chunkSize < 5) return parserResult();
+      if (chunkSize < 5 || dataOffset + 5 > bytes.length) {
+        return parserResult(null, "need-more");
+      }
       if (bytes[dataOffset] !== 0x2f) return parserResult();
       const width = 1 + (bytes[dataOffset + 1] | ((bytes[dataOffset + 2] & 0x3f) << 8));
       const height = 1 + ((bytes[dataOffset + 2] >> 6) | (bytes[dataOffset + 3] << 2) | ((bytes[dataOffset + 4] & 0x0f) << 10));
       return parserResult(normalizeDimensions(width, height));
     }
+    if (chunkEnd > bytes.length) return parserResult(null, "need-more");
     offset = chunkEnd + (chunkSize % 2);
   }
 
@@ -280,7 +287,8 @@ function dimensionsFromResult(result, bytesRead) {
 
 function metadataCacheUrl(origin, key, etag) {
   const url = new URL(origin);
-  url.pathname = `/__cache/image-metadata/${encodeURIComponent(key)}`;
+  url.pathname =
+    "/__cache/image-metadata/" + IMAGE_METADATA_CACHE_VERSION + "/" + encodeURIComponent(key);
   url.search = "";
   url.searchParams.set("v", encodeURIComponent(etag));
   return url.toString();

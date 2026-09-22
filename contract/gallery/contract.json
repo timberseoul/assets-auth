@@ -129,8 +129,8 @@
     "dimensionPositiveTtlSeconds": 31536000,
     "dimensionNegativeTtlSeconds": 300,
     "imageCacheTtlSeconds": 31536000,
-    "manifestCacheKey": "/__cache/gallery-manifest?prefix={prefix}&cursor={cursor}&limit={limit}",
-    "dimensionCacheKey": "/__cache/image-metadata/{encoded-key}?v={encoded-etag}",
+    "manifestCacheKey": "/__cache/gallery-manifest/v2?prefix={prefix}&cursor={cursor}&limit={limit}",
+    "dimensionCacheKey": "/__cache/image-metadata/v2/{encoded-key}?v={encoded-etag}",
     "imageCacheKey": "/__cache/image/{encoded-key}?v={encoded-etag}"
   },
   "http": {
